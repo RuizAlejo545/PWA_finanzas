@@ -1,6 +1,6 @@
 {
-  "name": "Mis Gastos",
-  "short_name": "Gastos",
+  "name": "FINANZAS",
+  "short_name": "Finanzas",
   "description": "Registro de gastos e ingresos que funciona sin internet",
   "start_url": "./index.html",
   "scope": "./",
