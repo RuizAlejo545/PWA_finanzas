@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e2e8f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0f1e" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Mis Gastos</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <div class="mes">
+    <button id="ant" aria-label="Mes anterior">‹</button>
+    <h1 id="mesTitulo"></h1>
+    <button id="sig" aria-label="Mes siguiente">›</button>
+  </div>
+
+  <section class="balance">
+    <small>Balance del mes</small>
+    <div class="grande" id="balance">$0</div>
+    <div class="fila2">
+      <div><small>Ingresos</small><b id="totIng">$0</b></div>
+      <div><small>Gastos</small><b id="totGas">$0</b></div>
+    </div>
+  </section>
+
+  <div class="ambitos" id="ambitos" role="group" aria-label="Filtrar por ámbito"></div>
+
+  <h2>Gastos por categoría</h2>
+  <div class="cats" id="cats"></div>
+
+  <h2>Movimientos</h2>
+  <div id="lista"></div>
+
+  <div class="pie">
+    <button id="csv">Exportar CSV</button>
+    <button id="instalar" hidden>Instalar app</button>
+  </div>
+</main>
+
+<button class="fab" id="nuevo">+ Agregar</button>
+<div id="aviso" role="status"></div>
+
+<dialog id="dlg">
+  <form method="dialog" id="form">
+    <h3>Nuevo movimiento</h3>
+    <div class="tipo">
+      <button type="button" class="g" id="tGasto" aria-pressed="true">Gasto</button>
+      <button type="button" class="i" id="tIngreso" aria-pressed="false">Ingreso</button>
+    </div>
+    <label for="monto">Monto (COP)</label>
+    <input id="monto" inputmode="numeric" placeholder="0" autocomplete="off" required>
+    <div class="dos">
+      <div><label for="categoria">Categoría</label><select id="categoria"></select></div>
+      <div><label for="ambito">Ámbito</label><select id="ambito"></select></div>
+    </div>
+    <div class="dos">
+      <div><label for="fecha">Fecha</label><input type="date" id="fecha" required></div>
+      <div><label for="nota">Nota</label><input id="nota" placeholder="Opcional" maxlength="60"></div>
+    </div>
+    <div class="acciones">
+      <button type="button" id="cancelar">Cancelar</button>
+      <button type="submit" class="ok">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+/* ==========================================================
+   Mis Gastos - lógica de la app
+   ========================================================== */
+
+
+/* ---------- 1. Configuración ---------- */
+const AMBITOS      = ['Personal', 'Trabajo', 'Negocio'];
+const CAT_GASTO    = ['Comida', 'Transporte', 'Gasolina', 'Hogar', 'Salud', 'Ocio', 'Estudio', 'Insumos', 'Otros'];
+const CAT_INGRESO  = ['Ventas', 'Domicilios', 'Salario', 'Otros'];
+const KEY          = 'gastos.movimientos.v1';
+
+
+/* ---------- 2. Utilidades ---------- */
+const $ = id => document.getElementById(id);
+
+// Formato de pesos colombianos: $ 12.000
+const cop = n => new Intl.NumberFormat('es-CO', {
+  style: 'currency',
+  currency: 'COP',
+  maximumFractionDigits: 0
+}).format(n);
+
+// Fecha de hoy en formato AAAA-MM-DD (hora local)
+function hoy() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
+// Evita que el texto escrito por el usuario rompa el HTML
+function esc(texto) {
+  const mapa = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  return String(texto).replace(/[&<>"']/g, c => mapa[c]);
+}
+
+function aviso(texto) {
+  const a = $('aviso');
+  a.textContent = texto;
+  a.classList.add('v');
+  setTimeout(() => a.classList.remove('v'), 1800);
+}
+
+
+/* ---------- 3. Estado y almacenamiento ---------- */
+let datos = [];
+try {
+  datos = JSON.parse(localStorage.getItem(KEY)) || [];
+} catch (e) {
+  datos = [];
+}
+
+let mes    = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let filtro = 'Todos';
+let tipo   = 'gasto';
+
+function guardar() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(datos));
+  } catch (e) {
+    aviso('No se pudo guardar');
+  }
+}
+
+
+/* ---------- 4. Dibujar la pantalla ---------- */
+function render() {
+  const ym = `${mes.getFullYear()}-${String(mes.getMonth() + 1).padStart(2, '0')}`;
+
+  $('mesTitulo').textContent = mes.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+
+  // Movimientos del mes y del ámbito seleccionado
+  const filtrados = datos
+    .filter(m => m.fecha.startsWith(ym) && (filtro === 'Todos' || m.ambito === filtro))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.id - a.id);
+
+  renderTotales(filtrados);
+  renderAmbitos();
+  renderCategorias(filtrados);
+  renderLista(filtrados);
+}
+
+function renderTotales(lista) {
+  const ingresos = lista.filter(m => m.tipo === 'ingreso').reduce((s, m) => s + m.monto, 0);
+  const gastos   = lista.filter(m => m.tipo === 'gasto').reduce((s, m) => s + m.monto, 0);
+
+  $('totIng').textContent = cop(ingresos);
+  $('totGas').textContent = cop(gastos);
+  $('balance').textContent = cop(ingresos - gastos);
+}
+
+function renderAmbitos() {
+  $('ambitos').innerHTML = ['Todos', ...AMBITOS]
+    .map(a => `<button aria-pressed="${a === filtro}" data-a="${a}">${a}</button>`)
+    .join('');
+}
+
+function renderCategorias(lista) {
+  const gastos = lista.filter(m => m.tipo === 'gasto');
+  const total  = gastos.reduce((s, m) => s + m.monto, 0);
+
+  // Sumar por categoría
+  const porCategoria = {};
+  gastos.forEach(m => {
+    porCategoria[m.categoria] = (porCategoria[m.categoria] || 0) + m.monto;
+  });
+
+  const filas = Object.entries(porCategoria).sort((a, b) => b[1] - a[1]);
+
+  if (!filas.length) {
+    $('cats').innerHTML = '<div style="color:var(--suave);font-size:.9rem">Aún no hay gastos este mes.</div>';
+    return;
+  }
+
+  $('cats').innerHTML = filas.map(([cat, valor]) => `
+    <div class="cat">
+      <div class="t"><span>${cat}</span><span>${cop(valor)}</span></div>
+      <div class="barra"><i style="width:${Math.round(valor / total * 100)}%"></i></div>
+    </div>
+  `).join('');
+}
+
+function renderLista(lista) {
+  if (!lista.length) {
+    $('lista').innerHTML = '<div class="vacio">Sin movimientos. Toca “Agregar” para registrar el primero.</div>';
+    return;
+  }
+
+  let html = '';
+  let ultimaFecha = '';
+
+  for (const m of lista) {
+    // Título de día cuando cambia la fecha
+    if (m.fecha !== ultimaFecha) {
+      ultimaFecha = m.fecha;
+      const texto = new Date(m.fecha + 'T12:00:00')
+        .toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'short' });
+      html += `<div class="dia">${texto}</div>`;
+    }
+
+    const esGasto = m.tipo === 'gasto';
+    html += `
+      <div class="item">
+        <div class="info">
+          <b>${esc(m.categoria)}</b>
+          <span>${esc(m.ambito)}${m.nota ? ' · ' + esc(m.nota) : ''}</span>
+        </div>
+        <div class="monto ${esGasto ? 'g' : 'i'}">${esGasto ? '−' : '+'}${cop(m.monto)}</div>
+        <button class="borrar" data-id="${m.id}" aria-label="Eliminar">✕</button>
+      </div>
+    `;
+  }
+
+  $('lista').innerHTML = html;
+}
+
+
+/* ---------- 5. Formulario ---------- */
+function llenarSelects() {
+  const categorias = tipo === 'gasto' ? CAT_GASTO : CAT_INGRESO;
+
+  $('categoria').innerHTML = categorias.map(c => `<option>${c}</option>`).join('');
+  $('ambito').innerHTML    = AMBITOS.map(a => `<option>${a}</option>`).join('');
+
+  if (filtro !== 'Todos') $('ambito').value = filtro;
+}
+
+function setTipo(nuevo) {
+  tipo = nuevo;
+  $('tGasto').setAttribute('aria-pressed', nuevo === 'gasto');
+  $('tIngreso').setAttribute('aria-pressed', nuevo === 'ingreso');
+  llenarSelects();
+}
+
+function abrirFormulario() {
+  $('form').reset();
+  setTipo('gasto');
+  $('fecha').value = hoy();
+  $('dlg').showModal();
+  setTimeout(() => $('monto').focus(), 50);
+}
+
+function guardarMovimiento(e) {
+  e.preventDefault();
+
+  const monto = Number($('monto').value.replace(/\D/g, ''));
+  if (!monto) {
+    aviso('Escribe un monto');
+    return;
+  }
+
+  datos.push({
+    id:        Date.now(),
+    tipo:      tipo,
+    monto:     monto,
+    categoria: $('categoria').value,
+    ambito:    $('ambito').value,
+    fecha:     $('fecha').value,
+    nota:      $('nota').value.trim()
+  });
+  guardar();
+
+  // Ir al mes del movimiento guardado
+  const f = new Date($('fecha').value + 'T12:00:00');
+  mes = new Date(f.getFullYear(), f.getMonth(), 1);
+
+  $('dlg').close();
+  render();
+  aviso('Guardado');
+}
+
+function eliminarMovimiento(e) {
+  const boton = e.target.closest('.borrar');
+  if (!boton) return;
+
+  if (confirm('¿Eliminar este movimiento?')) {
+    datos = datos.filter(m => m.id !== Number(boton.dataset.id));
+    guardar();
+    render();
+  }
+}
+
+// Mientras se escribe el monto, se agregan los puntos de miles
+function formatearMonto(e) {
+  const numeros = e.target.value.replace(/\D/g, '');
+  e.target.value = numeros ? new Intl.NumberFormat('es-CO').format(Number(numeros)) : '';
+}
+
+
+/* ---------- 6. Exportar a CSV ---------- */
+function exportarCSV() {
+  if (!datos.length) {
+    aviso('No hay datos');
+    return;
+  }
+
+  const encabezado = ['fecha', 'tipo', 'monto', 'categoria', 'ambito', 'nota'];
+  const filas = [...datos]
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+    .map(m => [m.fecha, m.tipo, m.monto, m.categoria, m.ambito, m.nota]);
+
+  const csv = '\ufeff' + [encabezado, ...filas]
+    .map(fila => fila.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
+  const enlace = document.createElement('a');
+  enlace.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  enlace.download = 'gastos.csv';
+  enlace.click();
+  URL.revokeObjectURL(enlace.href);
+}
+
+
+/* ---------- 7. Eventos ---------- */
+$('nuevo').onclick    = abrirFormulario;
+$('cancelar').onclick = () => $('dlg').close();
+$('tGasto').onclick   = () => setTipo('gasto');
+$('tIngreso').onclick = () => setTipo('ingreso');
+$('csv').onclick      = exportarCSV;
+
+$('monto').addEventListener('input', formatearMonto);
+$('form').addEventListener('submit', guardarMovimiento);
+$('lista').addEventListener('click', eliminarMovimiento);
+
+$('ambitos').addEventListener('click', e => {
+  const boton = e.target.closest('button');
+  if (boton) {
+    filtro = boton.dataset.a;
+    render();
+  }
+});
+
+$('ant').onclick = () => {
+  mes = new Date(mes.getFullYear(), mes.getMonth() - 1, 1);
+  render();
+};
+
+$('sig').onclick = () => {
+  mes = new Date(mes.getFullYear(), mes.getMonth() + 1, 1);
+  render();
+};
+
+
+/* ---------- 8. Instalación como app (PWA) ---------- */
+let promptInstalar;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  promptInstalar = e;
+  $('instalar').hidden = false;
+});
+
+$('instalar').onclick = async () => {
+  if (!promptInstalar) return;
+  promptInstalar.prompt();
+  await promptInstalar.userChoice;
+  promptInstalar = null;
+  $('instalar').hidden = true;
+};
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+
+/* ---------- 9. Iniciar ---------- */
+render();
+</script>
+</body>
+</html>
