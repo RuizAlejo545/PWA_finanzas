@@ -38,8 +38,10 @@
 
   <div class="pie">
     <button id="csv">Exportar CSV</button>
+    <button id="cuenta" hidden>Iniciar sesión</button>
     <button id="instalar" hidden>Instalar app</button>
   </div>
+  <p class="estado" id="estado" role="status"></p>
 </main>
 
 <button class="fab" id="nuevo">+ Agregar</button>
@@ -69,13 +71,53 @@
   </form>
 </dialog>
 
+<dialog id="dlgCuenta">
+  <h3>Cuenta</h3>
+
+  <!-- Sin sesión -->
+  <div id="cuentaEntrar">
+    <p>Inicia sesión para guardar tus gastos en la nube y verlos en todos tus dispositivos.</p>
+    <label for="correo">Correo</label>
+    <input type="email" id="correo" autocomplete="email">
+    <label for="clave">Contraseña (mínimo 6 caracteres)</label>
+    <input type="password" id="clave" autocomplete="current-password">
+    <p class="error" id="cuentaError" role="alert"></p>
+    <div class="acciones">
+      <button type="button" id="btnCrear">Crear cuenta</button>
+      <button type="button" class="ok" id="btnEntrar">Entrar</button>
+    </div>
+  </div>
+
+  <!-- Con sesión -->
+  <div id="cuentaSesion" hidden>
+    <p>Sesión iniciada como <b id="cuentaCorreo"></b></p>
+    <p>Al cerrar sesión se borran los datos de este dispositivo; siguen guardados en tu cuenta.</p>
+    <div class="acciones">
+      <button type="button" id="btnSync">Sincronizar</button>
+      <button type="button" id="btnSalir">Cerrar sesión</button>
+    </div>
+  </div>
+
+  <div class="acciones">
+    <button type="button" id="btnCerrarCuenta">Cerrar</button>
+  </div>
+</dialog>
+
+<script src="config.js"></script>
+<script src="supabase.js"></script>
+<script src="api.js"></script>
 <script>
+/* ==========================================================
+   Mis Gastos - lógica de la app
+   ========================================================== */
+
 
 /* ---------- 1. Configuración ---------- */
 const AMBITOS      = ['Personal', 'Trabajo', 'Negocio'];
 const CAT_GASTO    = ['Comida', 'Transporte', 'Gasolina', 'Hogar', 'Salud', 'Ocio', 'Estudio', 'Insumos', 'Otros'];
 const CAT_INGRESO  = ['Ventas', 'Domicilios', 'Salario', 'Otros'];
 const KEY          = 'gastos.movimientos.v1';
+const KEY_BORRADOS = 'gastos.borrados.v1';
 
 
 /* ---------- 2. Utilidades ---------- */
@@ -101,6 +143,12 @@ function esc(texto) {
   return String(texto).replace(/[&<>"']/g, c => mapa[c]);
 }
 
+// Id único para cada movimiento
+function nuevoId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
 function aviso(texto) {
   const a = $('aviso');
   a.textContent = texto;
@@ -110,12 +158,23 @@ function aviso(texto) {
 
 
 /* ---------- 3. Estado y almacenamiento ---------- */
-let datos = [];
-try {
-  datos = JSON.parse(localStorage.getItem(KEY)) || [];
-} catch (e) {
-  datos = [];
+function leerLocal(clave) {
+  try {
+    return JSON.parse(localStorage.getItem(clave)) || [];
+  } catch (e) {
+    return [];
+  }
 }
+
+// Movimientos guardados en el dispositivo (ids siempre como texto)
+let datos = leerLocal(KEY).map(m => ({
+  ...m,
+  id:     String(m.id),
+  creado: m.creado || Number(m.id) || 0
+}));
+
+// Ids eliminados que faltan por borrar en la nube
+let borrados = leerLocal(KEY_BORRADOS);
 
 let mes    = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let filtro = 'Todos';
@@ -129,6 +188,12 @@ function guardar() {
   }
 }
 
+function guardarBorrados() {
+  try {
+    localStorage.setItem(KEY_BORRADOS, JSON.stringify(borrados));
+  } catch (e) {}
+}
+
 
 /* ---------- 4. Dibujar la pantalla ---------- */
 function render() {
@@ -139,7 +204,7 @@ function render() {
   // Movimientos del mes y del ámbito seleccionado
   const filtrados = datos
     .filter(m => m.fecha.startsWith(ym) && (filtro === 'Todos' || m.ambito === filtro))
-    .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.id - a.id);
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || (b.creado || 0) - (a.creado || 0));
 
   renderTotales(filtrados);
   renderAmbitos();
@@ -257,13 +322,15 @@ function guardarMovimiento(e) {
   }
 
   datos.push({
-    id:        Date.now(),
+    id:        nuevoId(),
     tipo:      tipo,
     monto:     monto,
     categoria: $('categoria').value,
     ambito:    $('ambito').value,
     fecha:     $('fecha').value,
-    nota:      $('nota').value.trim()
+    nota:      $('nota').value.trim(),
+    creado:    Date.now(),
+    sync:      false
   });
   guardar();
 
@@ -274,6 +341,7 @@ function guardarMovimiento(e) {
   $('dlg').close();
   render();
   aviso('Guardado');
+  sincronizar();
 }
 
 function eliminarMovimiento(e) {
@@ -281,9 +349,19 @@ function eliminarMovimiento(e) {
   if (!boton) return;
 
   if (confirm('¿Eliminar este movimiento?')) {
-    datos = datos.filter(m => m.id !== Number(boton.dataset.id));
+    const id = boton.dataset.id;
+    const movimiento = datos.find(m => m.id === id);
+
+    // Si ya estaba en la nube, hay que borrarlo allá también
+    if (movimiento && movimiento.sync) {
+      borrados.push(id);
+      guardarBorrados();
+    }
+
+    datos = datos.filter(m => m.id !== id);
     guardar();
     render();
+    sincronizar();
   }
 }
 
@@ -348,7 +426,149 @@ $('sig').onclick = () => {
 };
 
 
-/* ---------- 8. Instalación como app (PWA) ---------- */
+/* ---------- 8. Cuenta y sincronización (Supabase) ---------- */
+let usuario       = null;
+let sincronizando = false;
+
+function mostrarEstado(texto) {
+  $('estado').textContent = texto;
+}
+
+function actualizarCuenta() {
+  $('cuenta').textContent  = usuario ? 'Cuenta' : 'Iniciar sesión';
+  $('cuentaEntrar').hidden = !!usuario;
+  $('cuentaSesion').hidden = !usuario;
+  $('cuentaCorreo').textContent = usuario ? usuario.email : '';
+
+  if (!API.configurado) mostrarEstado('');
+  else if (!usuario)    mostrarEstado('Solo en este dispositivo');
+}
+
+function traducirError(mensaje) {
+  if (/invalid login/i.test(mensaje))      return 'Correo o contraseña incorrectos.';
+  if (/already registered/i.test(mensaje)) return 'Ese correo ya tiene una cuenta. Usa “Entrar”.';
+  if (/email not confirmed/i.test(mensaje)) return 'Confirma tu correo antes de entrar.';
+  return mensaje;
+}
+
+async function sincronizar() {
+  if (!API.configurado || !usuario || sincronizando) return;
+
+  if (!navigator.onLine) {
+    mostrarEstado('Sin conexión: se sincronizará después');
+    return;
+  }
+
+  sincronizando = true;
+  mostrarEstado('Sincronizando…');
+
+  try {
+    // 1. Borrar en la nube lo que se eliminó aquí
+    if (borrados.length) {
+      const r = await API.borrar(borrados);
+      if (r.error) throw r.error;
+      borrados = [];
+      guardarBorrados();
+    }
+
+    // 2. Subir los movimientos nuevos o pendientes
+    const pendientes = datos.filter(m => !m.sync);
+    if (pendientes.length) {
+      const r = await API.subir(pendientes, usuario.id);
+      if (r.error) throw r.error;
+      pendientes.forEach(m => { m.sync = true; });
+      guardar();
+    }
+
+    // 3. Bajar todo lo que hay en la nube
+    const r = await API.bajar();
+    if (r.error) throw r.error;
+
+    const enNube      = r.data.filter(m => !borrados.includes(m.id));
+    const idsEnNube   = new Set(enNube.map(m => m.id));
+    const sinSubir    = datos.filter(m => !m.sync && !idsEnNube.has(m.id));
+
+    datos = [...enNube, ...sinSubir];
+    guardar();
+    render();
+    mostrarEstado('Sincronizado');
+  } catch (e) {
+    mostrarEstado('No se pudo sincronizar');
+  } finally {
+    sincronizando = false;
+  }
+}
+
+async function entrarCuenta(crear) {
+  const correo = $('correo').value.trim();
+  const clave  = $('clave').value;
+  const error  = $('cuentaError');
+  error.textContent = '';
+
+  if (!correo || clave.length < 6) {
+    error.textContent = 'Escribe un correo y una contraseña de al menos 6 caracteres.';
+    return;
+  }
+
+  const r = crear ? await API.registrar(correo, clave) : await API.entrar(correo, clave);
+
+  if (r.error) {
+    error.textContent = traducirError(r.error.message);
+    return;
+  }
+
+  // Si Supabase pide confirmar el correo, todavía no hay sesión
+  if (crear && !r.data.session) {
+    error.textContent = 'Cuenta creada. Revisa tu correo para confirmarla y luego entra.';
+    return;
+  }
+
+  $('clave').value = '';
+  $('dlgCuenta').close();
+}
+
+async function salirCuenta() {
+  await sincronizar();
+
+  const hayPendientes = datos.some(m => !m.sync);
+  if (hayPendientes && !confirm('Hay movimientos sin sincronizar que se perderán. ¿Salir de todas formas?')) {
+    return;
+  }
+
+  await API.salir();
+
+  // Se limpian los datos locales para que no se mezclen con otra cuenta
+  datos = [];
+  borrados = [];
+  guardar();
+  guardarBorrados();
+
+  $('dlgCuenta').close();
+  render();
+  aviso('Sesión cerrada');
+}
+
+$('cuenta').onclick          = () => $('dlgCuenta').showModal();
+$('btnCerrarCuenta').onclick = () => $('dlgCuenta').close();
+$('btnEntrar').onclick       = () => entrarCuenta(false);
+$('btnCrear').onclick        = () => entrarCuenta(true);
+$('btnSync').onclick         = sincronizar;
+$('btnSalir').onclick        = salirCuenta;
+
+if (API.configurado) {
+  $('cuenta').hidden = false;
+
+  API.alCambiarSesion(sesion => {
+    usuario = sesion ? sesion.user : null;
+    actualizarCuenta();
+    if (usuario) setTimeout(sincronizar, 0);
+  });
+
+  window.addEventListener('online', sincronizar);
+}
+
+
+/* ---------- 9. Instalación como app (PWA) ---------- */
 let promptInstalar;
 
 window.addEventListener('beforeinstallprompt', e => {
@@ -370,7 +590,8 @@ if ('serviceWorker' in navigator) {
 }
 
 
-/* ---------- 9. Iniciar ---------- */
+/* ---------- 10. Iniciar ---------- */
+actualizarCuenta();
 render();
 </script>
 </body>

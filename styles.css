@@ -444,3 +444,28 @@ select {
     transition: none;
   }
 }
+
+
+/* ---------- 12. Cuenta y sincronización ---------- */
+.estado {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--suave);
+  margin-top: 12px;
+}
+
+#dlgCuenta p {
+  font-size: 0.9rem;
+  color: var(--suave);
+  margin-bottom: 8px;
+}
+
+#dlgCuenta p b {
+  color: var(--tinta);
+}
+
+#dlgCuenta .error {
+  color: var(--gasto);
+  min-height: 1.3em;
+  margin: 8px 0 0;
+}

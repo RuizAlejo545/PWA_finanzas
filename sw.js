@@ -1,5 +1,5 @@
-const CACHE = 'gastos-v4';
-const ARCHIVOS = ['./', './index.html', './styles.css', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastos-v5';
+const ARCHIVOS = ['./', './index.html', './styles.css', './config.js', './supabase.js', './api.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARCHIVOS)));
@@ -14,7 +14,10 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+
+  // Solo se cachean los archivos de la app. Las llamadas a Supabase van directo a internet.
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request).then(r => r || fetch(e.request).then(res => {
       const copia = res.clone();
