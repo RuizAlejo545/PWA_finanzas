@@ -1,5 +1,5 @@
-const CACHE = 'gastos-v5';
-const ARCHIVOS = ['./', './index.html', './styles.css', './config.js', './supabase.js', './api.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastos-v9';
+const ARCHIVOS = ['./', './index.html', './styles.css', './config.js', './supabase.js', './api.js', './exportar.js', './app.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARCHIVOS)));
@@ -20,8 +20,11 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request).then(r => r || fetch(e.request).then(res => {
-      const copia = res.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copia));
+      // Solo se guardan respuestas correctas (nunca errores 404)
+      if (res.ok) {
+        const copia = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copia));
+      }
       return res;
     }).catch(() => caches.match('./index.html')))
   );
