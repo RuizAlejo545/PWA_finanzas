@@ -4,15 +4,15 @@ const ARCHIVOS = [
   './',
   './index.html',
   './styles.css',
-  './config.js',
+  './JS/config.js',
   './supabase.js',
-  './api.js',
-  './exportar.js',
-  './debug.js',
-  './app.js',
+  './JS/api.js',
+  './JS/exportar.js',
+  './JS/debug.js',
+  './JS/app.js',
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+  './img/icon-192.png',
+  './img/icon-512.png'
 ];
 
 self.addEventListener('install', e => {
