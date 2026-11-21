@@ -24,9 +24,10 @@
   }
 }
 
-
-/* 2. Base */
-* {
+/* Base */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
 }
@@ -72,8 +73,7 @@ h2 {
   margin: 20px 0 8px;
 }
 
-
-/* 3. Selector de mes */
+/* Selector de mes */
 .mes {
   display: flex;
   align-items: center;
@@ -96,8 +96,7 @@ h2 {
   font-size: 1.1rem;
 }
 
-
-/* ---------- 4. Tarjeta de balance ---------- */
+/* Tarjeta de balance */
 .balance {
   background: var(--panel);
   color: #e2e8f0;
@@ -112,7 +111,8 @@ h2 {
 }
 
 .balance .grande {
-  font-size: 2.3rem;
+  font-size: clamp(1.6rem, 8vw, 2.3rem);
+  overflow-wrap: anywhere;
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 2px 0 14px;
@@ -126,15 +126,17 @@ h2 {
 
 .fila2 div {
   flex: 1;
+  min-width: 0;
 }
 
 .fila2 b {
   display: block;
+  overflow-wrap: anywhere;
   font-size: 1.05rem;
   font-variant-numeric: tabular-nums;
 }
 
-/*5. Filtros de ámbito  */
+/* Filtros de ámbito */
 .ambitos {
   display: flex;
   gap: 8px;
@@ -166,8 +168,7 @@ h2 {
   }
 }
 
-
-/*6. Gastos por categoría */
+/* Gastos por categoría */
 .cats {
   background: var(--tarjeta);
   border: 1px solid var(--linea);
@@ -200,8 +201,7 @@ h2 {
   border-radius: 3px;
 }
 
-
-/* 7. Lista de movimientos*/
+/* Lista de movimientos */
 .dia {
   font-size: 0.8rem;
   color: var(--suave);
@@ -241,6 +241,8 @@ h2 {
 }
 
 .item .monto {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -269,8 +271,7 @@ h2 {
   border-radius: var(--r);
 }
 
-
-/* 8. Pie de página*/
+/* Pie de página */
 .pie {
   display: flex;
   flex-wrap: wrap;
@@ -288,8 +289,7 @@ h2 {
   color: var(--suave);
 }
 
-
-/* 9. Botón flotante*/
+/* Botón flotante */
 .fab {
   position: fixed;
   right: 18px;
@@ -304,8 +304,7 @@ h2 {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
 }
 
-
-/* 10. Formulario (ventana) */
+/* Ventanas modales */
 dialog {
   width: 100%;
   max-width: 560px;
@@ -359,7 +358,6 @@ dialog h3 {
   }
 }
 
-/* Campos */
 label {
   display: block;
   font-size: 0.8rem;
@@ -416,8 +414,7 @@ select {
   }
 }
 
-
-/* 11. Aviso temporal*/
+/* Aviso temporal */
 #aviso {
   position: fixed;
   left: 50%;
@@ -443,8 +440,7 @@ select {
   }
 }
 
-
-/*12. Cuenta y sincronización */
+/* Cuenta y estados */
 .estado {
   text-align: center;
   font-size: 0.8rem;
@@ -475,3 +471,75 @@ select {
   color: var(--suave);
   font-size: 0.9rem;
 }
+
+/* Consola de depuración */
+.dbg-boton {
+  position: fixed;
+  left: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 50;
+  background: #0a0f1e;
+  color: #e2e8f0;
+  border: 1px solid #3b82f6;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+}
+
+.dbg-panel {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 45vh;
+  z-index: 60;
+  flex-direction: column;
+  background: #0a0f1e;
+  color: #e2e8f0;
+  border-top: 2px solid #3b82f6;
+  font: 12px/1.4 ui-monospace, Consolas, monospace;
+}
+
+.dbg-panel.abierto {
+  display: flex;
+}
+
+.dbg-barra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #1b2a41;
+}
+
+.dbg-barra span {
+  flex: 1;
+  font-weight: 700;
+}
+
+.dbg-barra button {
+  background: transparent;
+  color: #e2e8f0;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+
+.dbg-lista {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.dbg-linea {
+  padding: 3px 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dbg-info { color: #7dd3fc; }
+.dbg-warn { color: #fbbf24; }
+.dbg-error { color: #f87171; }

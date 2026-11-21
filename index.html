@@ -7,11 +7,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#e2e8f0" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0a0f1e" media="(prefers-color-scheme: dark)">
-    
+
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icon-192.png">
     <link rel="apple-touch-icon" href="icon-192.png">
-    
+
     <title>Mis Gastos</title>
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -53,18 +53,17 @@
         <button id="cuenta" hidden>Iniciar sesión</button>
         <button id="instalar" hidden>Instalar app</button>
       </div>
-      
+
       <p class="estado" id="estado" role="status"></p>
     </main>
 
     <button class="fab" id="nuevo">+ Agregar</button>
     <div id="aviso" role="status"></div>
 
-    <!-- Modal: Nuevo movimiento -->
     <dialog id="dlg">
       <form method="dialog" id="form">
         <h3>Nuevo movimiento</h3>
-        
+
         <div class="tipo">
           <button type="button" class="g" id="tGasto" aria-pressed="true">Gasto</button>
           <button type="button" class="i" id="tIngreso" aria-pressed="false">Ingreso</button>
@@ -102,33 +101,30 @@
       </form>
     </dialog>
 
-    <!-- Modal: Cuenta -->
     <dialog id="dlgCuenta">
       <h3>Cuenta</h3>
 
-      <!-- Sin sesión -->
       <div id="cuentaEntrar">
         <p>Inicia sesión para guardar tus gastos en la nube y verlos en todos tus dispositivos.</p>
-        
+
         <label for="correo">Correo</label>
         <input type="email" id="correo" autocomplete="email">
-        
+
         <label for="clave">Contraseña (mínimo 8 caracteres)</label>
         <input type="password" id="clave" autocomplete="current-password">
-        
+
         <p class="error" id="cuentaError" role="alert"></p>
-        
+
         <div class="acciones">
           <button type="button" id="btnCrear">Crear cuenta</button>
           <button type="button" class="ok" id="btnEntrar">Entrar</button>
         </div>
       </div>
 
-      <!-- Con sesión -->
       <div id="cuentaSesion" hidden>
         <p>Sesión iniciada como <b id="cuentaCorreo"></b></p>
         <p>Al cerrar sesión se borran los datos de este dispositivo; siguen guardados en tu cuenta.</p>
-        
+
         <div class="acciones">
           <button type="button" id="btnSync">Sincronizar</button>
           <button type="button" id="btnSalir">Cerrar sesión</button>
@@ -140,7 +136,6 @@
       </div>
     </dialog>
 
-    <!-- Modal: Exportar a Excel -->
     <dialog id="dlgExcel">
       <h3>Exportar a Excel</h3>
       <p>El reporte se arma en el servidor con tus movimientos guardados en la nube. Necesitas internet y sesión iniciada.</p>
@@ -156,14 +151,14 @@
       <select id="exAmbito"></select>
 
       <p class="error" id="exError" role="alert"></p>
-      
+
       <div class="acciones">
         <button type="button" id="exCancelar">Cancelar</button>
         <button type="button" class="ok" id="exGenerar">Descargar</button>
       </div>
     </dialog>
 
-    <!-- Scripts -->
+    <script src="debug.js"></script>
     <script src="config.js"></script>
     <script src="supabase.js"></script>
     <script src="api.js"></script>

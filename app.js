@@ -1,37 +1,34 @@
+// --- Configuración ---
 
-/* ---------- 1. Configuración ---------- */
-const AMBITOS      = ['Personal', 'Trabajo', 'Negocio'];
-const CAT_GASTO    = ['Comida', 'Transporte', 'Gasolina', 'Hogar', 'Salud', 'Ocio', 'Estudio', 'Insumos', 'Otros'];
-const CAT_INGRESO  = ['Ventas', 'Domicilios', 'Salario', 'Otros'];
-const KEY          = 'gastos.movimientos.v1';
+const AMBITOS = ['Personal', 'Trabajo', 'Negocio'];
+const CAT_GASTO = ['Comida', 'Transporte', 'Gasolina', 'Hogar', 'Salud', 'Ocio', 'Estudio', 'Insumos', 'Otros'];
+const CAT_INGRESO = ['Ventas', 'Domicilios', 'Salario', 'Otros'];
+const KEY = 'gastos.movimientos.v1';
 const KEY_BORRADOS = 'gastos.borrados.v1';
-const MONTO_MAX    = 999999999999999;   // 15 dígitos: el mismo límite de la base de datos
+const MONTO_MAX = 999999999999999; // 15 dígitos, igual que en base de datos
+const UMBRAL_LENTO_MS = 100;
 
+// --- Utilidades ---
 
-/* ---------- 2. Utilidades ---------- */
 const $ = id => document.getElementById(id);
 
-// Formato de pesos colombianos: $ 12.000
 const cop = n => new Intl.NumberFormat('es-CO', {
   style: 'currency',
   currency: 'COP',
   maximumFractionDigits: 0
 }).format(n);
 
-// Fecha de hoy en formato AAAA-MM-DD (hora local)
 function hoy() {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 10);
 }
 
-// Evita que el texto escrito por el usuario rompa el HTML
 function esc(texto) {
   const mapa = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   return String(texto).replace(/[&<>"']/g, c => mapa[c]);
 }
 
-// Id único para cada movimiento
 function nuevoId() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -44,8 +41,41 @@ function aviso(texto) {
   setTimeout(() => a.classList.remove('v'), 1800);
 }
 
+// Registra tiempos en consola y en la pista "Timings" de DevTools
+function medir(nombre, { umbral = UMBRAL_LENTO_MS, siempre = true } = {}) {
+  const inicio = performance.now();
+  const id = `${nombre}#${Math.round(inicio)}`;
+  const puedeMarcar = typeof performance.mark === 'function' && typeof performance.measure === 'function';
 
-/* ---------- 3. Estado y almacenamiento ---------- */
+  try {
+    if (puedeMarcar) performance.mark(`${id}-inicio`);
+  } catch (e) {}
+
+  return function fin(detalle) {
+    const ms = performance.now() - inicio;
+
+    try {
+      if (puedeMarcar) {
+        performance.mark(`${id}-fin`);
+        performance.measure(nombre, `${id}-inicio`, `${id}-fin`);
+        performance.clearMarks(`${id}-inicio`);
+        performance.clearMarks(`${id}-fin`);
+        performance.clearMeasures(nombre);
+      }
+    } catch (e) {}
+
+    const lento = ms > umbral;
+    if (!siempre && !lento) return ms;
+
+    const texto = `${nombre}: ${ms.toFixed(1)} ms` + (detalle ? ` (${detalle})` : '');
+    if (lento) console.warn(`${texto} · más lento de lo esperado (límite ${umbral} ms)`);
+    else console.log(texto);
+    return ms;
+  };
+}
+
+// --- Estado y almacenamiento ---
+
 function leerLocal(clave) {
   try {
     return JSON.parse(localStorage.getItem(clave)) || [];
@@ -54,30 +84,31 @@ function leerLocal(clave) {
   }
 }
 
-// Movimientos guardados en el dispositivo (ids siempre como texto)
 let datos = leerLocal(KEY).map(m => ({
   ...m,
-  id:     String(m.id),
+  id: String(m.id),
   creado: m.creado || Number(m.id) || 0
 }));
 
-// Montos imposibles (por un error al escribir) se descartan: no caben en pantalla ni en la nube
 const totalAntes = datos.length;
 datos = datos.filter(m => Number.isFinite(m.monto) && m.monto > 0 && m.monto <= MONTO_MAX);
 const descartados = totalAntes - datos.length;
 if (descartados) guardar();
 
-// Ids eliminados que faltan por borrar en la nube
 let borrados = leerLocal(KEY_BORRADOS);
 
-let mes    = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let mes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let filtro = 'Todos';
-let tipo   = 'gasto';
+let tipo = 'gasto';
 
 function guardar() {
+  const fin = medir('guardar en el dispositivo', { umbral: 20, siempre: false });
+
   try {
     localStorage.setItem(KEY, JSON.stringify(datos));
+    fin(`${datos.length} movimientos`);
   } catch (e) {
+    console.error('No se pudo guardar en el dispositivo:', e);
     aviso('No se pudo guardar');
   }
 }
@@ -88,14 +119,14 @@ function guardarBorrados() {
   } catch (e) {}
 }
 
+// --- Dibujar pantalla ---
 
-/* ---------- 4. Dibujar la pantalla ---------- */
 function render() {
+  const fin = medir('render');
   const ym = `${mes.getFullYear()}-${String(mes.getMonth() + 1).padStart(2, '0')}`;
 
   $('mesTitulo').textContent = mes.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
 
-  // Movimientos del mes y del ámbito seleccionado
   const filtrados = datos
     .filter(m => m.fecha.startsWith(ym) && (filtro === 'Todos' || m.ambito === filtro))
     .sort((a, b) => b.fecha.localeCompare(a.fecha) || (b.creado || 0) - (a.creado || 0));
@@ -104,11 +135,13 @@ function render() {
   renderAmbitos();
   renderCategorias(filtrados);
   renderLista(filtrados);
+
+  fin(`${filtrados.length} de ${datos.length} movimientos`);
 }
 
 function renderTotales(lista) {
   const ingresos = lista.filter(m => m.tipo === 'ingreso').reduce((s, m) => s + m.monto, 0);
-  const gastos   = lista.filter(m => m.tipo === 'gasto').reduce((s, m) => s + m.monto, 0);
+  const gastos = lista.filter(m => m.tipo === 'gasto').reduce((s, m) => s + m.monto, 0);
 
   $('totIng').textContent = cop(ingresos);
   $('totGas').textContent = cop(gastos);
@@ -123,9 +156,8 @@ function renderAmbitos() {
 
 function renderCategorias(lista) {
   const gastos = lista.filter(m => m.tipo === 'gasto');
-  const total  = gastos.reduce((s, m) => s + m.monto, 0);
+  const total = gastos.reduce((s, m) => s + m.monto, 0);
 
-  // Sumar por categoría
   const porCategoria = {};
   gastos.forEach(m => {
     porCategoria[m.categoria] = (porCategoria[m.categoria] || 0) + m.monto;
@@ -145,7 +177,7 @@ function renderCategorias(lista) {
     </div>
   `).join('');
 
-  // El ancho se pone desde JS (la política de seguridad no permite estilos en línea)
+  // Se aplica por JS porque el CSP bloquea estilos en línea
   $('cats').querySelectorAll('.barra i').forEach(barra => {
     barra.style.width = barra.dataset.ancho + '%';
   });
@@ -161,7 +193,6 @@ function renderLista(lista) {
   let ultimaFecha = '';
 
   for (const m of lista) {
-    // Título de día cuando cambia la fecha
     if (m.fecha !== ultimaFecha) {
       ultimaFecha = m.fecha;
       const texto = new Date(m.fecha + 'T12:00:00')
@@ -185,13 +216,13 @@ function renderLista(lista) {
   $('lista').innerHTML = html;
 }
 
+// --- Formulario ---
 
-/* ---------- 5. Formulario ---------- */
 function llenarSelects() {
   const categorias = tipo === 'gasto' ? CAT_GASTO : CAT_INGRESO;
 
   $('categoria').innerHTML = categorias.map(c => `<option>${c}</option>`).join('');
-  $('ambito').innerHTML    = AMBITOS.map(a => `<option>${a}</option>`).join('');
+  $('ambito').innerHTML = AMBITOS.map(a => `<option>${a}</option>`).join('');
 
   if (filtro !== 'Todos') $('ambito').value = filtro;
 }
@@ -216,28 +247,32 @@ function guardarMovimiento(e) {
 
   const monto = Number($('monto').value.replace(/\D/g, ''));
   if (!monto) {
+    console.warn('No se guardó: falta el monto');
     aviso('Escribe un monto');
     return;
   }
   if (monto > MONTO_MAX) {
+    console.warn('No se guardó: el monto supera el máximo permitido');
     aviso('El monto máximo es $999.999.999.999.999');
     return;
   }
 
-  datos.push({
-    id:        nuevoId(),
-    tipo:      tipo,
-    monto:     monto,
+  const nuevo = {
+    id: nuevoId(),
+    tipo: tipo,
+    monto: monto,
     categoria: $('categoria').value,
-    ambito:    $('ambito').value,
-    fecha:     $('fecha').value,
-    nota:      $('nota').value.trim(),
-    creado:    Date.now(),
-    sync:      false
-  });
-  guardar();
+    ambito: $('ambito').value,
+    fecha: $('fecha').value,
+    nota: $('nota').value.trim(),
+    creado: Date.now(),
+    sync: false
+  };
 
-  // Ir al mes del movimiento guardado
+  datos.push(nuevo);
+  guardar();
+  console.log('Movimiento guardado:', nuevo.tipo, '·', nuevo.categoria, '·', nuevo.ambito, `(id ${nuevo.id.slice(0, 8)})`);
+
   const f = new Date($('fecha').value + 'T12:00:00');
   mes = new Date(f.getFullYear(), f.getMonth(), 1);
 
@@ -255,11 +290,16 @@ function eliminarMovimiento(e) {
     const id = boton.dataset.id;
     const movimiento = datos.find(m => m.id === id);
 
-    // Si ya estaba en la nube, hay que borrarlo allá también
     if (movimiento && movimiento.sync) {
       borrados.push(id);
       guardarBorrados();
     }
+
+    console.log(
+      'Movimiento eliminado:',
+      `id ${id.slice(0, 8)}`,
+      movimiento && movimiento.sync ? '(también se borrará de la nube)' : '(solo estaba en este dispositivo)'
+    );
 
     datos = datos.filter(m => m.id !== id);
     guardar();
@@ -268,14 +308,13 @@ function eliminarMovimiento(e) {
   }
 }
 
-// Mientras se escribe el monto, se agregan los puntos de miles
 function formatearMonto(e) {
   const numeros = e.target.value.replace(/\D/g, '').slice(0, 15);
   e.target.value = numeros ? new Intl.NumberFormat('es-CO').format(Number(numeros)) : '';
 }
 
+// --- Exportar ---
 
-/* ---------- 6. Exportar (Excel desde el servidor y CSV) ---------- */
 function descargar(blob, nombre) {
   const enlace = document.createElement('a');
   enlace.href = URL.createObjectURL(blob);
@@ -284,11 +323,10 @@ function descargar(blob, nombre) {
   setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
 }
 
-// Convierte la opción elegida en un rango de fechas (según el mes que se está viendo)
 function rangoPeriodo(periodo) {
   const anio = mes.getFullYear();
-  const m    = mes.getMonth();
-  const dos  = n => String(n).padStart(2, '0');
+  const m = mes.getMonth();
+  const dos = n => String(n).padStart(2, '0');
 
   if (periodo === 'mes') {
     const ultimo = new Date(anio, m + 1, 0).getDate();
@@ -315,37 +353,44 @@ function abrirExcel() {
 }
 
 async function generarExcel() {
-  const error  = $('exError');
-  const boton  = $('exGenerar');
+  const error = $('exError');
+  const boton = $('exGenerar');
   error.textContent = '';
 
   if (!navigator.onLine) {
+    console.warn('Excel: no se puede pedir sin conexión');
     error.textContent = 'Sin conexión. El CSV sí funciona sin internet.';
     return;
   }
 
   boton.disabled = true;
   boton.textContent = 'Generando…';
+  const fin = medir('exportar Excel (servidor)', { umbral: 5000 });
 
   try {
-    // El servidor lee de la nube: primero se sube lo que falte
     await sincronizar();
     if (datos.some(m => !m.sync)) {
+      console.warn('Excel: hay movimientos sin sincronizar');
       error.textContent = 'Hay movimientos sin sincronizar. Intenta de nuevo en un momento.';
+      fin('sin sincronizar');
       return;
     }
 
     const opciones = rangoPeriodo($('exPeriodo').value);
-    const ambito   = $('exAmbito').value;
+    const ambito = $('exAmbito').value;
     if (ambito !== 'Todos') opciones.ambito = ambito;
 
+    console.log('Excel: pidiendo el reporte al servidor', JSON.stringify(opciones));
     const r = await API.exportarExcel(opciones);
     if (r.error) {
+      console.warn('Excel: no se pudo crear:', r.error);
       error.textContent = r.error;
+      fin('falló');
       return;
     }
 
     descargar(r.data, `gastos_${hoy()}.xlsx`);
+    fin(`${Math.round(r.data.size / 1024)} KB`);
     $('dlgExcel').close();
     aviso('Excel descargado');
   } finally {
@@ -360,20 +405,22 @@ function exportarCSV() {
     return;
   }
 
+  const fin = medir('exportar CSV');
   const csv = Exportar.crearCSV(datos);
   descargar(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `gastos_${hoy()}.csv`);
+  fin(`${datos.length} movimientos`);
 }
 
+// --- Eventos ---
 
-/* ---------- 7. Eventos ---------- */
-$('nuevo').onclick    = abrirFormulario;
+$('nuevo').onclick = abrirFormulario;
 $('cancelar').onclick = () => $('dlg').close();
-$('tGasto').onclick   = () => setTipo('gasto');
+$('tGasto').onclick = () => setTipo('gasto');
 $('tIngreso').onclick = () => setTipo('ingreso');
-$('excel').onclick    = abrirExcel;
+$('excel').onclick = abrirExcel;
 $('exGenerar').onclick = generarExcel;
 $('exCancelar').onclick = () => $('dlgExcel').close();
-$('csv').onclick      = exportarCSV;
+$('csv').onclick = exportarCSV;
 
 $('monto').addEventListener('input', formatearMonto);
 $('form').addEventListener('submit', guardarMovimiento);
@@ -383,23 +430,26 @@ $('ambitos').addEventListener('click', e => {
   const boton = e.target.closest('button');
   if (boton) {
     filtro = boton.dataset.a;
+    console.log('Filtro de ámbito:', filtro);
     render();
   }
 });
 
 $('ant').onclick = () => {
   mes = new Date(mes.getFullYear(), mes.getMonth() - 1, 1);
+  console.log('Mes seleccionado:', mes.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' }));
   render();
 };
 
 $('sig').onclick = () => {
   mes = new Date(mes.getFullYear(), mes.getMonth() + 1, 1);
+  console.log('Mes seleccionado:', mes.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' }));
   render();
 };
 
+// --- Cuenta y sincronización ---
 
-/* ---------- 8. Cuenta y sincronización (Supabase) ---------- */
-let usuario       = null;
+let usuario = null;
 let sincronizando = false;
 
 function mostrarEstado(texto) {
@@ -407,17 +457,17 @@ function mostrarEstado(texto) {
 }
 
 function actualizarCuenta() {
-  $('cuenta').textContent  = usuario ? 'Cuenta' : 'Iniciar sesión';
+  $('cuenta').textContent = usuario ? 'Cuenta' : 'Iniciar sesión';
   $('cuentaEntrar').hidden = !!usuario;
   $('cuentaSesion').hidden = !usuario;
   $('cuentaCorreo').textContent = usuario ? usuario.email : '';
 
   if (!API.configurado) mostrarEstado('');
-  else if (!usuario)    mostrarEstado('Solo en este dispositivo');
+  else if (!usuario) mostrarEstado('Solo en este dispositivo');
 }
 
 function traducirError(mensaje) {
-  if (/invalid login/i.test(mensaje))      return 'Correo o contraseña incorrectos.';
+  if (/invalid login/i.test(mensaje)) return 'Correo o contraseña incorrectos.';
   if (/already registered/i.test(mensaje)) return 'Ese correo ya tiene una cuenta. Usa “Entrar”.';
   if (/email not confirmed/i.test(mensaje)) return 'Confirma tu correo antes de entrar.';
   return mensaje;
@@ -427,44 +477,50 @@ async function sincronizar() {
   if (!API.configurado || !usuario || sincronizando) return;
 
   if (!navigator.onLine) {
+    console.warn('Sin conexión: la sincronización queda pendiente');
     mostrarEstado('Sin conexión: se sincronizará después');
     return;
   }
 
   sincronizando = true;
   mostrarEstado('Sincronizando…');
+  const fin = medir('sincronizar', { umbral: 3000 });
+  let subidos = 0;
+  let eliminados = 0;
 
   try {
-    // 1. Borrar en la nube lo que se eliminó aquí
     if (borrados.length) {
       const r = await API.borrar(borrados);
       if (r.error) throw r.error;
+      eliminados = borrados.length;
       borrados = [];
       guardarBorrados();
     }
 
-    // 2. Subir los movimientos nuevos o pendientes
     const pendientes = datos.filter(m => !m.sync);
     if (pendientes.length) {
       const r = await API.subir(pendientes, usuario.id);
       if (r.error) throw r.error;
+      subidos = pendientes.length;
       pendientes.forEach(m => { m.sync = true; });
       guardar();
     }
 
-    // 3. Bajar todo lo que hay en la nube
     const r = await API.bajar();
     if (r.error) throw r.error;
 
-    const enNube      = r.data.filter(m => !borrados.includes(m.id));
-    const idsEnNube   = new Set(enNube.map(m => m.id));
-    const sinSubir    = datos.filter(m => !m.sync && !idsEnNube.has(m.id));
+    const enNube = r.data.filter(m => !borrados.includes(m.id));
+    const idsEnNube = new Set(enNube.map(m => m.id));
+    const sinSubir = datos.filter(m => !m.sync && !idsEnNube.has(m.id));
 
     datos = [...enNube, ...sinSubir];
     guardar();
     render();
     mostrarEstado('Sincronizado');
+    fin(`${datos.length} movimientos · subidos ${subidos} · borrados en la nube ${eliminados}`);
   } catch (e) {
+    console.error('Error al sincronizar:', e);
+    fin('falló');
     mostrarEstado('No se pudo sincronizar');
   } finally {
     sincronizando = false;
@@ -473,8 +529,8 @@ async function sincronizar() {
 
 async function entrarCuenta(crear) {
   const correo = $('correo').value.trim();
-  const clave  = $('clave').value;
-  const error  = $('cuentaError');
+  const clave = $('clave').value;
+  const error = $('cuentaError');
   error.textContent = '';
 
   if (!correo || clave.length < 8) {
@@ -482,14 +538,15 @@ async function entrarCuenta(crear) {
     return;
   }
 
+  console.log(crear ? 'Creando cuenta…' : 'Iniciando sesión…');
   const r = crear ? await API.registrar(correo, clave) : await API.entrar(correo, clave);
 
   if (r.error) {
+    console.warn('Cuenta:', r.error.message);
     error.textContent = traducirError(r.error.message);
     return;
   }
 
-  // Si Supabase pide confirmar el correo, todavía no hay sesión
   if (crear && !r.data.session) {
     error.textContent = 'Cuenta creada. Revisa tu correo para confirmarla y luego entra.';
     return;
@@ -507,9 +564,9 @@ async function salirCuenta() {
     return;
   }
 
+  console.log('Cerrando sesión: se borran los datos locales de este dispositivo');
   await API.salir();
 
-  // Se limpian los datos locales para que no se mezclen con otra cuenta
   datos = [];
   borrados = [];
   guardar();
@@ -520,18 +577,19 @@ async function salirCuenta() {
   aviso('Sesión cerrada');
 }
 
-$('cuenta').onclick          = () => $('dlgCuenta').showModal();
+$('cuenta').onclick = () => $('dlgCuenta').showModal();
 $('btnCerrarCuenta').onclick = () => $('dlgCuenta').close();
-$('btnEntrar').onclick       = () => entrarCuenta(false);
-$('btnCrear').onclick        = () => entrarCuenta(true);
-$('btnSync').onclick         = sincronizar;
-$('btnSalir').onclick        = salirCuenta;
+$('btnEntrar').onclick = () => entrarCuenta(false);
+$('btnCrear').onclick = () => entrarCuenta(true);
+$('btnSync').onclick = sincronizar;
+$('btnSalir').onclick = salirCuenta;
 
 if (API.configurado) {
   $('cuenta').hidden = false;
 
   API.alCambiarSesion(sesion => {
     usuario = sesion ? sesion.user : null;
+    console.log('Sesión:', usuario ? 'iniciada' : 'cerrada');
     actualizarCuenta();
     if (usuario) setTimeout(sincronizar, 0);
   });
@@ -539,12 +597,13 @@ if (API.configurado) {
   window.addEventListener('online', sincronizar);
 }
 
+// --- Instalación PWA ---
 
-/* ---------- 9. Instalación como app (PWA) ---------- */
 let promptInstalar;
 
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
+  console.log('La app se puede instalar');
   promptInstalar = e;
   $('instalar').hidden = false;
 });
@@ -557,12 +616,56 @@ $('instalar').onclick = async () => {
   $('instalar').hidden = true;
 };
 
+window.addEventListener('appinstalled', () => console.log('App instalada'));
+window.addEventListener('online', () => console.log('Conexión recuperada'));
+window.addEventListener('offline', () => console.warn('Sin conexión: la app sigue con los datos del dispositivo'));
+
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js')
+    .then(registro => console.log('Service worker registrado (alcance:', registro.scope + ')'))
+    .catch(e => console.warn('Service worker:', e.message));
 }
 
+// --- Iniciar ---
 
-/* ---------- 10. Iniciar ---------- */
+function resumenDeCarga() {
+  const mostrar = () => setTimeout(() => {
+    try {
+      const nav = performance.getEntriesByType('navigation')[0];
+      if (!nav) return;
+
+      const fcp = performance.getEntriesByName('first-contentful-paint')[0];
+      let texto = `Carga de la página: HTML listo en ${Math.round(nav.domContentLoadedEventEnd)} ms, ` +
+        `todo cargado en ${Math.round(nav.loadEventEnd)} ms`;
+      if (fcp) texto += `, primer contenido en ${Math.round(fcp.startTime)} ms`;
+      console.log(texto);
+
+      const recursos = performance.getEntriesByType('resource');
+      const kb = Math.round(recursos.reduce((suma, r) => suma + (r.transferSize || 0), 0) / 1024);
+      const lento = [...recursos].sort((a, b) => b.duration - a.duration)[0];
+      console.log(
+        `Recursos: ${recursos.length} archivos, ${kb} KB descargados de la red` +
+        (lento ? `, el más lento: ${lento.name.split('/').pop()} (${Math.round(lento.duration)} ms)` : '')
+      );
+    } catch (e) {}
+  }, 0);
+
+  if (document.readyState === 'complete') mostrar();
+  else window.addEventListener('load', mostrar);
+}
+
+console.log(
+  `App iniciada: ${datos.length} movimientos en el dispositivo · ` +
+  `${navigator.onLine ? 'con' : 'sin'} conexión · Supabase ${API.configurado ? 'configurado' : 'sin configurar'}`
+);
+
 actualizarCuenta();
 render();
-if (descartados) aviso(`Se quitó ${descartados} movimiento con monto inválido`);
+
+if (descartados) {
+  console.warn(`Se descartaron ${descartados} movimiento(s) con monto inválido`);
+  aviso(`Se quitó ${descartados} movimiento con monto inválido`);
+}
+
+console.log(`App lista ${Math.round(performance.now())} ms después de abrir la página`);
+resumenDeCarga();

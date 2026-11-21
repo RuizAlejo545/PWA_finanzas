@@ -1,7 +1,4 @@
-/* ==========================================================
-   Mis Gastos - conexión con Supabase (API)
-   Todas las funciones devuelven { data, error }
-   ========================================================== */
+// Cliente de Supabase para sesión, sincronización y exportación
 const API = (() => {
   const cfg = window.GASTOS_CONFIG || {};
 
@@ -15,23 +12,21 @@ const API = (() => {
     ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY)
     : null;
 
-  // Movimiento local -> fila de la tabla
   const aFila = (m, userId) => ({
-    user_id:   userId,
-    id:        String(m.id),
-    tipo:      m.tipo,
-    monto:     m.monto,
+    user_id: userId,
+    id: String(m.id),
+    tipo: m.tipo,
+    monto: m.monto,
     categoria: m.categoria,
-    ambito:    m.ambito,
-    fecha:     m.fecha,
-    nota:      m.nota || '',
-    creado:    m.creado || 0
+    ambito: m.ambito,
+    fecha: m.fecha,
+    nota: m.nota || '',
+    creado: m.creado || 0
   });
 
-  // Fila de la tabla -> movimiento local.
-  // Se valida todo: si una fila viene mal formada se descarta.
   const texto = (valor, max) => String(valor == null ? '' : valor).slice(0, max);
 
+  // Descarta filas inválidas que lleguen de la base de datos
   const aMovimiento = f => {
     if (!f) return null;
 
@@ -44,28 +39,26 @@ const API = (() => {
     if (!valido) return null;
 
     return {
-      id:        texto(f.id, 64),
-      tipo:      f.tipo,
-      monto:     monto,
+      id: texto(f.id, 64),
+      tipo: f.tipo,
+      monto: monto,
       categoria: texto(f.categoria, 40),
-      ambito:    texto(f.ambito, 40),
-      fecha:     f.fecha,
-      nota:      texto(f.nota, 200),
-      creado:    Number(f.creado) || 0,
-      sync:      true
+      ambito: texto(f.ambito, 40),
+      fecha: f.fecha,
+      nota: texto(f.nota, 200),
+      creado: Number(f.creado) || 0,
+      sync: true
     };
   };
 
-  /* ----- Sesión ----- */
   const registrar = (correo, clave) => db.auth.signUp({ email: correo, password: clave });
-  const entrar    = (correo, clave) => db.auth.signInWithPassword({ email: correo, password: clave });
-  const salir     = () => db.auth.signOut();
+  const entrar = (correo, clave) => db.auth.signInWithPassword({ email: correo, password: clave });
+  const salir = () => db.auth.signOut();
 
   function alCambiarSesion(callback) {
     db.auth.onAuthStateChange((evento, sesion) => callback(sesion));
   }
 
-  /* ----- Datos ----- */
   async function subir(lista, userId) {
     const filas = lista.map(m => aFila(m, userId));
     return db.from('gastos').upsert(filas, { onConflict: 'user_id,id' });
@@ -75,7 +68,6 @@ const API = (() => {
     return db.from('gastos').delete().in('id', ids);
   }
 
-  // Descarga todos los movimientos (de 1000 en 1000)
   async function bajar() {
     const paso = 1000;
     let todo = [];
@@ -99,8 +91,6 @@ const API = (() => {
     return { data: todo.map(aMovimiento).filter(Boolean), error: null };
   }
 
-  // Pide el Excel a la Edge Function "exportar-excel".
-  // opciones: { desde, hasta, ambito } (todas opcionales)
   async function exportarExcel(opciones) {
     const { data: s } = await db.auth.getSession();
     const token = s && s.session ? s.session.access_token : null;
@@ -124,6 +114,8 @@ const API = (() => {
           else if (respuesta.status === 404) mensaje = 'La función "exportar-excel" no está desplegada en Supabase.';
         } catch (e) {}
       }
+
+      console.error('exportar-excel:', error.name, '-', mensaje);
       return { data: null, error: mensaje };
     }
 
